@@ -8,6 +8,7 @@ keywords = ["quic"]
 categories = [ "network-programming", "asynchronous" ]
 readme = "README.md"
 description = "Plaintext quinn cryptography (insecure)"
+repository = "https://github.com/jeromegn/quinn-plaintext"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
