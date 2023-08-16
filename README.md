@@ -18,12 +18,7 @@ let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".
 ### Client
 
 ```rust
-let client = quinn::Endpoint::client("[::]:0".parse()?)?;
-
-let conn = client.connect_with(
-    quinn_plaintext::client_config(),
-    "127.0.0.1:1337".parse()?,
-    "plaintext.test"
-)?.await?;
+let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
+client.set_default_client_config(quinn_plaintext::client_config());
 // ...
 ```

@@ -8,10 +8,25 @@ use quinn_proto::{
 };
 use tracing::trace;
 
+/// Sets up a basic [`quinn::ServerConfig`] for use with plaintext cryptography.
+///
+/// # Examples
+///
+/// ```
+/// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse()?)?;
+/// ```
 pub fn server_config() -> quinn::ServerConfig {
     quinn::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
 }
 
+/// Sets up a basic [`quinn::ClientConfig`] for use with plaintext cryptography.
+///  
+/// # Examples
+///
+/// ```
+/// let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
+/// client.set_default_client_config(quinn_plaintext::client_config());
+/// ```
 pub fn client_config() -> quinn::ClientConfig {
     quinn::ClientConfig::new(Arc::new(PlaintextClientConfig::new()))
 }
@@ -96,7 +111,7 @@ fn crypto_packet_keypair(side: Side) -> crypto::KeyPair<Box<dyn crypto::PacketKe
 pub struct PlaintextSession {
     side: Side,
     params: transport_parameters::TransportParameters,
-    handshake_data: Option<transport_parameters::TransportParameters>,
+    peer_params: Option<transport_parameters::TransportParameters>,
     wrote_transporter_params: bool,
     initial_keys: Option<crypto::Keys>,
     handshake_keys: Option<crypto::Keys>,
@@ -107,7 +122,7 @@ impl PlaintextSession {
         Self {
             side,
             params,
-            handshake_data: None,
+            peer_params: None,
             wrote_transporter_params: false,
             initial_keys: Some(crypto_keys(side)),
             handshake_keys: Some(crypto_keys(side)),
@@ -124,7 +139,7 @@ impl crypto::Session for PlaintextSession {
 
     fn handshake_data(&self) -> Option<Box<dyn std::any::Any>> {
         trace!(side = ?self.side, "handshake_data");
-        self.handshake_data
+        self.peer_params
             .map(|tp| Box::new(tp) as Box<dyn std::any::Any>)
     }
 
@@ -145,7 +160,7 @@ impl crypto::Session for PlaintextSession {
 
     fn is_handshaking(&self) -> bool {
         trace!(side = ?self.side, "is_handshaking");
-        self.handshake_data.is_none()
+        self.peer_params.is_none()
             || !self.wrote_transporter_params
                 && (self.initial_keys.is_some() || self.handshake_keys.is_some())
     }
@@ -153,8 +168,8 @@ impl crypto::Session for PlaintextSession {
     fn read_handshake(&mut self, mut buf: &[u8]) -> Result<bool, TransportError> {
         trace!(side = ?self.side, "read_handshake {buf:?}");
 
-        if self.handshake_data.is_none() {
-            self.handshake_data = Some(
+        if self.peer_params.is_none() {
+            self.peer_params = Some(
                 transport_parameters::TransportParameters::read(self.side, &mut buf)
                     .expect("could not read shit"),
             );
@@ -166,7 +181,7 @@ impl crypto::Session for PlaintextSession {
         &self,
     ) -> Result<Option<transport_parameters::TransportParameters>, TransportError> {
         trace!(side = ?self.side, "transport_parameters");
-        Ok(self.handshake_data.clone())
+        Ok(self.peer_params.clone())
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<crypto::Keys> {
@@ -304,8 +319,6 @@ impl crypto::PacketKey for PlaintextPacketKey {
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::AsyncWriteExt;
-
     use super::*;
 
     #[tokio::test]
@@ -320,8 +333,6 @@ mod tests {
             .expect("could not get server local addr");
 
         let test_data = b"hello world";
-
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
 
         let server_fut = async move {
             println!("server waiting to accept...");
@@ -345,10 +356,6 @@ mod tests {
                 .await
                 .expect("could not test string");
 
-            done_tx
-                .send(())
-                .expect("could not tell the client we're done");
-
             b
         };
 
@@ -370,9 +377,8 @@ mod tests {
             println!("opened a unidirectional stream");
 
             send.write_all(b"hello world").await.unwrap();
-            send.flush().await.unwrap();
 
-            done_rx.await.unwrap();
+            send.finish().await.unwrap();
         };
 
         let (buf, _) = tokio::join!(server_fut, client_fut);
