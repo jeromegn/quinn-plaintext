@@ -1,12 +1,16 @@
-use std::sync::Arc;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 
 use quinn_proto::{
     crypto::{self, CryptoError, HeaderKey},
     transport_parameters, ConnectionId, Side, TransportError,
 };
-use tracing::trace;
+use seahash::SeaHasher;
+use tracing::{error, trace};
 
 /// Sets up a basic [`quinn::ServerConfig`] for use with plaintext cryptography.
 ///
@@ -15,8 +19,8 @@ use tracing::trace;
 /// ```
 /// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse()?)?;
 /// ```
-pub fn server_config() -> quinn::ServerConfig {
-    quinn::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
+pub fn server_config() -> quinn_proto::ServerConfig {
+    quinn_proto::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
 }
 
 /// Sets up a basic [`quinn::ClientConfig`] for use with plaintext cryptography.
@@ -27,8 +31,8 @@ pub fn server_config() -> quinn::ServerConfig {
 /// let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
 /// client.set_default_client_config(quinn_plaintext::client_config());
 /// ```
-pub fn client_config() -> quinn::ClientConfig {
-    quinn::ClientConfig::new(Arc::new(PlaintextClientConfig::new()))
+pub fn client_config() -> quinn_proto::ClientConfig {
+    quinn_proto::ClientConfig::new(Arc::new(PlaintextClientConfig::new()))
 }
 
 pub struct PlaintextHeaderKey {
@@ -70,6 +74,7 @@ impl PlaintextPacketKey {
     }
 }
 
+#[derive(Default)]
 pub struct PlaintextClientConfig;
 
 impl PlaintextClientConfig {
@@ -78,6 +83,7 @@ impl PlaintextClientConfig {
     }
 }
 
+#[derive(Default)]
 pub struct PlaintextServerConfig;
 
 impl PlaintextServerConfig {
@@ -181,7 +187,7 @@ impl crypto::Session for PlaintextSession {
         &self,
     ) -> Result<Option<transport_parameters::TransportParameters>, TransportError> {
         trace!(side = ?self.side, "transport_parameters");
-        Ok(self.peer_params.clone())
+        Ok(self.peer_params)
     }
 
     fn write_handshake(&mut self, buf: &mut Vec<u8>) -> Option<crypto::Keys> {
@@ -194,16 +200,14 @@ impl crypto::Session for PlaintextSession {
         trace!(side = ?self.side, "write_handshake");
 
         match self.initial_keys.take().or_else(|| {
-            self.handshake_keys.take().and_then(|k| {
-                if self.side.is_server() {
-                    if !self.wrote_transporter_params {
-                        self.params.write(buf);
-                        self.wrote_transporter_params = true;
-                        trace!("wrote data: {buf:?}");
-                    }
+            self.handshake_keys.take().map(|k| {
+                if self.side.is_server() && !self.wrote_transporter_params {
+                    self.params.write(buf);
+                    self.wrote_transporter_params = true;
+                    trace!("wrote data: {buf:?}");
                 }
                 trace!("taking handshake keys");
-                Some(k)
+                k
             })
         }) {
             Some(k) => Some(k),
@@ -241,12 +245,9 @@ impl crypto::ClientConfig for PlaintextClientConfig {
         version: u32,
         server_name: &str,
         params: &transport_parameters::TransportParameters,
-    ) -> Result<Box<dyn crypto::Session>, quinn::ConnectError> {
+    ) -> Result<Box<dyn crypto::Session>, quinn_proto::ConnectError> {
         trace!("ClientConfig::start_session version: {version}, server_name: {server_name}, params: {params:?}");
-        Ok(Box::new(PlaintextSession::new(
-            Side::Client,
-            params.clone(),
-        )))
+        Ok(Box::new(PlaintextSession::new(Side::Client, *params)))
     }
 }
 
@@ -275,7 +276,7 @@ impl crypto::ServerConfig for PlaintextServerConfig {
         params: &transport_parameters::TransportParameters,
     ) -> Box<dyn crypto::Session> {
         trace!("ServerConfig::start_session version: {version}, params: {params:?}");
-        Box::new(PlaintextSession::new(Side::Server, params.clone()))
+        Box::new(PlaintextSession::new(Side::Server, *params))
     }
 }
 
@@ -286,6 +287,15 @@ impl crypto::PacketKey for PlaintextPacketKey {
         let (header, payload_tag) = buf.split_at_mut(header_len);
         trace!(side = ?self.side, "header: {header:?}");
         trace!(side = ?self.side, "payload_tag: {payload_tag:?}");
+        let (payload, tag_storage) = payload_tag.split_at_mut(payload_tag.len() - self.tag_len());
+        trace!("tag_storage: {tag_storage:?}");
+        let mut hasher = SeaHasher::default();
+        header.hash(&mut hasher);
+        payload.hash(&mut hasher);
+        let checksum = hasher.finish();
+        trace!("checksum: {checksum:?}");
+        tag_storage.copy_from_slice(&checksum.to_be_bytes());
+        trace!("tag_storage (after put): {tag_storage:?}");
         // do nothing
     }
 
@@ -296,14 +306,30 @@ impl crypto::PacketKey for PlaintextPacketKey {
         payload: &mut BytesMut,
     ) -> Result<(), CryptoError> {
         trace!(side = ?self.side, "PacketKey::decrypt packet: {packet}, header: {header:?}");
+
+        let mut tag_storage = payload.split_off(payload.len() - self.tag_len());
+
         trace!(side = ?self.side, "payload: {:?}", payload.as_ref());
+        trace!(side = ?self.side, "tag_storage: {:?}", tag_storage.as_ref());
+
+        let mut hasher = SeaHasher::default();
+        header.hash(&mut hasher);
+        payload.hash(&mut hasher);
+        let checksum = hasher.finish();
+
+        let expected = tag_storage.get_u64();
+        if checksum != expected {
+            error!(side = ?self.side, "checksum mismatch, expected {expected}, got: {checksum}");
+            return Err(CryptoError);
+        }
+
         // do nothing
         Ok(())
     }
 
     fn tag_len(&self) -> usize {
         trace!(side = ?self.side, "PacketKey::tag_len");
-        0
+        8
     }
 
     fn confidentiality_limit(&self) -> u64 {
@@ -323,6 +349,8 @@ mod tests {
 
     #[tokio::test]
     async fn basic_test() {
+        _ = tracing_subscriber::fmt::try_init();
+
         let server_config =
             quinn::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()));
         let server = quinn::Endpoint::server(server_config, "127.0.0.1:0".parse().unwrap())
