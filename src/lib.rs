@@ -19,8 +19,8 @@ use tracing::{error, trace};
 /// ```
 /// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse()?)?;
 /// ```
-pub fn server_config() -> quinn::ServerConfig {
-    quinn::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
+pub fn server_config() -> quinn_proto::ServerConfig {
+    quinn_proto::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
 }
 
 /// Sets up a basic [`quinn::ClientConfig`] for use with plaintext cryptography.
@@ -31,8 +31,8 @@ pub fn server_config() -> quinn::ServerConfig {
 /// let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
 /// client.set_default_client_config(quinn_plaintext::client_config());
 /// ```
-pub fn client_config() -> quinn::ClientConfig {
-    quinn::ClientConfig::new(Arc::new(PlaintextClientConfig::new()))
+pub fn client_config() -> quinn_proto::ClientConfig {
+    quinn_proto::ClientConfig::new(Arc::new(PlaintextClientConfig::new()))
 }
 
 pub struct PlaintextHeaderKey {
@@ -245,7 +245,7 @@ impl crypto::ClientConfig for PlaintextClientConfig {
         version: u32,
         server_name: &str,
         params: &transport_parameters::TransportParameters,
-    ) -> Result<Box<dyn crypto::Session>, quinn::ConnectError> {
+    ) -> Result<Box<dyn crypto::Session>, quinn_proto::ConnectError> {
         trace!("ClientConfig::start_session version: {version}, server_name: {server_name}, params: {params:?}");
         Ok(Box::new(PlaintextSession::new(Side::Client, *params)))
     }
