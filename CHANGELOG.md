@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-- Add checksum for both header and payload
+- (BREAKING) Add checksum for both header and payload in the tag storage
 
 ## 0.1.1
 
