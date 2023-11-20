@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use bytes::{Buf, BytesMut};
 
@@ -6,6 +9,7 @@ use quinn_proto::{
     crypto::{self, CryptoError, HeaderKey},
     transport_parameters, ConnectionId, Side, TransportError,
 };
+use seahash::SeaHasher;
 use tracing::{error, trace};
 
 /// Sets up a basic [`quinn::ServerConfig`] for use with plaintext cryptography.
@@ -285,7 +289,10 @@ impl crypto::PacketKey for PlaintextPacketKey {
         trace!(side = ?self.side, "payload_tag: {payload_tag:?}");
         let (payload, tag_storage) = payload_tag.split_at_mut(payload_tag.len() - self.tag_len());
         trace!("tag_storage: {tag_storage:?}");
-        let checksum = seahash::hash(payload);
+        let mut hasher = SeaHasher::default();
+        header.hash(&mut hasher);
+        payload.hash(&mut hasher);
+        let checksum = hasher.finish();
         trace!("checksum: {checksum:?}");
         tag_storage.copy_from_slice(&checksum.to_be_bytes());
         trace!("tag_storage (after put): {tag_storage:?}");
@@ -305,7 +312,11 @@ impl crypto::PacketKey for PlaintextPacketKey {
         trace!(side = ?self.side, "payload: {:?}", payload.as_ref());
         trace!(side = ?self.side, "tag_storage: {:?}", tag_storage.as_ref());
 
-        let checksum = seahash::hash(payload);
+        let mut hasher = SeaHasher::default();
+        header.hash(&mut hasher);
+        payload.hash(&mut hasher);
+        let checksum = hasher.finish();
+
         let expected = tag_storage.get_u64();
         if checksum != expected {
             error!(side = ?self.side, "checksum mismatch, expected {expected}, got: {checksum}");
