@@ -17,7 +17,7 @@ use tracing::{error, trace};
 /// # Examples
 ///
 /// ```
-/// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse()?)?;
+/// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse().unwrap()).unwrap();
 /// ```
 pub fn server_config() -> quinn_proto::ServerConfig {
     quinn_proto::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
@@ -28,7 +28,7 @@ pub fn server_config() -> quinn_proto::ServerConfig {
 /// # Examples
 ///
 /// ```
-/// let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
+/// let mut client = quinn::Endpoint::client("[::]:0".parse().unwrap()).unwrap();
 /// client.set_default_client_config(quinn_plaintext::client_config());
 /// ```
 pub fn client_config() -> quinn_proto::ClientConfig {
@@ -403,7 +403,8 @@ mod tests {
 
             send.write_all(b"hello world").await.unwrap();
 
-            send.finish().unwrap();
+            let e = conn.closed().await;
+            println!("close err: {e}");
         };
 
         let (buf, _) = tokio::join!(server_fut, client_fut);
