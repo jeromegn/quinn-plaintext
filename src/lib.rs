@@ -256,12 +256,9 @@ impl crypto::ServerConfig for PlaintextServerConfig {
         &self,
         version: u32,
         dst_cid: &ConnectionId,
-        side: Side,
     ) -> Result<crypto::Keys, crypto::UnsupportedVersion> {
-        trace!(
-            "ServerConfig::initial_keys version: {version}, dst_cid: {dst_cid:?}, side: {side:?}"
-        );
-        Ok(crypto_keys(side))
+        trace!("ServerConfig::initial_keys version: {version}, dst_cid: {dst_cid:?}");
+        Ok(crypto_keys(Side::Server))
     }
 
     fn retry_tag(&self, version: u32, orig_dst_cid: &ConnectionId, packet: &[u8]) -> [u8; 16] {
@@ -406,7 +403,7 @@ mod tests {
 
             send.write_all(b"hello world").await.unwrap();
 
-            send.finish().await.unwrap();
+            send.finish().unwrap();
         };
 
         let (buf, _) = tokio::join!(server_fut, client_fut);

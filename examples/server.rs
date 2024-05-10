@@ -13,7 +13,12 @@ async fn main() {
 
     info!("server waiting to accept...");
     loop {
-        let connecting = server.accept().await.expect("did not accept a conn!");
+        let connecting = server
+            .accept()
+            .await
+            .expect("did not accept a conn!")
+            .accept()
+            .expect("could not accept a conn");
         warn!("accepted: {connecting:?}");
 
         // possibly triggers a "0.5-RTT" handshake
