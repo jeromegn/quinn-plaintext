@@ -1,11 +1,11 @@
 [package]
 name = "quinn-plaintext"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 resolver = "2"
 license = "MIT OR Apache-2.0"
 keywords = ["quic"]
-categories = [ "network-programming", "asynchronous" ]
+categories = ["network-programming", "asynchronous"]
 readme = "README.md"
 description = "Plaintext quinn cryptography (insecure)"
 repository = "https://github.com/jeromegn/quinn-plaintext"
@@ -17,6 +17,9 @@ tracing = "0.1"
 seahash = "4.1.0"
 
 [dev-dependencies]
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+quinn = { version = "0.11", default-features = false, features = [
+    "runtime-tokio",
+    "rustls-ring",
+] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
