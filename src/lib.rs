@@ -17,7 +17,7 @@ use tracing::{error, trace};
 /// # Examples
 ///
 /// ```
-/// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse()?)?;
+/// let server = quinn::Endpoint::server(quinn_plaintext::server_config(), "[::]:0".parse().expect("failed to parse address"));
 /// ```
 pub fn server_config() -> quinn_proto::ServerConfig {
     quinn_proto::ServerConfig::with_crypto(Arc::new(PlaintextServerConfig::new()))
@@ -27,8 +27,8 @@ pub fn server_config() -> quinn_proto::ServerConfig {
 ///  
 /// # Examples
 ///
-/// ```
-/// let mut client = quinn::Endpoint::client("[::]:0".parse()?)?;
+/// ```no_run
+/// let mut client = quinn::Endpoint::client("[::]:0".parse().expect("failed to parse address")).expect("failed to create client");
 /// client.set_default_client_config(quinn_plaintext::client_config());
 /// ```
 pub fn client_config() -> quinn_proto::ClientConfig {
